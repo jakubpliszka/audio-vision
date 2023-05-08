@@ -15,10 +15,20 @@ class Camera:
 
     def __del__(self) -> None:
         # release the camera
-        self.device.release()
+        self.stop()
         cv2.destroyAllWindows()
+
+    def start(self) -> None:
+        self.device.open(0)
+
+    def stop(self) -> None:
+        self.device.release()
 
     def capture(self) -> np.ndarray:
         # read a frame from the camera
-        _, frame = self.device.read()
+        captured, frame = self.device.read()
+        if not captured:
+            raise Exception("Could not capture a frame from the camera")
+        
         return frame
+    

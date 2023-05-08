@@ -1,27 +1,69 @@
 import cv2
+import datetime
 import os
 import numpy as np
 
 from src.camera import Camera
-
-# TODO add a database to store the faces and their labels
-
+from src.mongodb import MongoDB
 
 class FaceRecognition:
     FACE_IMAGE_SIZE = (256, 256)
     CONFIDENCE_THRESHOLD = 100
+    COLLECTION_NAME = "people"
+    DB_NAME = "face_recognition"
+    model_file = "face_recognition_model.yml"
 
-    def __init__(self, cascade_path: str = "haarcascade_frontalface_default.xml") -> None:
+    def __init__(self, cascade_path: str = "haarcascade_frontalface_default.xml", model_path: str = model_file) -> None:
         self.face_cascade = cv2.CascadeClassifier(cascade_path)
         self.recognizer = cv2.face.LBPHFaceRecognizer_create()
+        self.trained = False
 
-        # initialize the camera
-        self.camera = Camera()
+        if model_path and os.path.exists(model_path):
+            self.recognizer.read(model_path)
+            self.trained = True
+            self.model_file = model_path
 
-    def train(self, faces: list[np.ndarray], ids: list[int]) -> None:
-        self.recognizer.train(faces, ids)
+        self.database = MongoDB("localhost", 27017, self.DB_NAME)
+        self.database.connect()
+
+    def add_new_person(self, name: str) -> int:
+        name = name.lower()
+
+        # check if the person already exists
+        person = self.database.find(self.COLLECTION_NAME, {"name": name})
+        if person:
+            return person["id"] 
+
+        # get the id of the latest person
+        latest_entry = self.database.find(self.COLLECTION_NAME, {}, sort=[("timestamp", -1)])
+        if not latest_entry:
+            # create a new entry
+            id = 0
+        else:
+            id = latest_entry["id"] + 1 
+
+        person = {
+            "timestamp": datetime.datetime.now(),
+            "name": name,
+            "id": id,
+        }
+
+        # add a new person to the database
+        self.database.insert(self.COLLECTION_NAME, person)
+
+        # return the id of the new person
+        return id
+
+    def train(self, faces: list[np.ndarray], id: int) -> None:
+        ids = np.full(len(faces), id, dtype=np.int32)
+        if not self.trained:
+            self.recognizer.train(faces, ids)
+            self.trained = True
+        else:
+            self.recognizer.update(faces, ids)
+
         # save the model
-        # self.recognizer.write("face_recognition_model.yml")
+        self.recognizer.write(self.model_file)
 
     def detect_face(self, image: np.ndarray) -> np.ndarray:
         detected_faces = self.face_cascade.detectMultiScale(
@@ -35,47 +77,48 @@ class FaceRecognition:
             face = cv2.resize(face, self.FACE_IMAGE_SIZE)
             face = cv2.cvtColor(face, cv2.COLOR_BGR2GRAY)
 
-            # replace the face with the processed face
+            # store the face in the result array
             result[i] = face
 
         return result
 
-    def recognize(self, image: np.ndarray) -> bool:
+    def recognize(self, image: np.ndarray) -> str:
+        if not self.trained:
+            return None
+        
         # detect the faces in the frame using the face detection classifier
         detected_faces = self.detect_face(image)
+        face = detected_faces[0] # focus on the first face
+        
+        # use the face recognition model to recognize the person
+        id, confidence = self.recognizer.predict(face)
 
-        result = []
-        # loop over each detected face
-        for face in detected_faces:
-            # use the face recognition model to recognize the person
-            id, confidence = self.recognizer.predict(face)
+        # if the confidence is high enough, the person is recognized
+        if confidence > self.CONFIDENCE_THRESHOLD:
+            return self.get_person_name(id)
+        else:
+            return None
 
-            person = {
-                "recognized": False,
-                "id": None,
-            }
 
-            # if the confidence is high enough, the person is recognized
-            if confidence > self.CONFIDENCE_THRESHOLD:
-                person["recognized"] = True
-                person["id"] = id
-
-            result.append(person)
-
-        return result
-
-    def create_dataset(self, name: str, number_of_images: int = 1) -> None:
-        # create a directory to store the images
-        directory = os.path.join("dataset", name)
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-
-        # start the loop to capture images
-        for i in range(number_of_images):
+    def create_dataset(self, camera: Camera, size: int) -> list:
+        dataset = []
+        for _ in range(size):
             # read a frame from the camera
-            frame = self.camera.capture()
-            detected_faces = self.detect_face(frame)
+            frame = camera.capture()
 
-            for face in detected_faces:
-                img_path = f"{directory}/{name}_{i}.jpg"
-                cv2.imwrite(img_path, face)
+            # detect the face in the frame
+            detected_faces = self.detect_face(frame)
+            if len(detected_faces) == 0:
+                raise Exception("No face detected")
+            elif len(detected_faces) > 1:
+                raise Exception("Multiple faces detected")
+
+            # save the face image
+            face = detected_faces[0]
+            dataset.append(face)
+
+        return dataset
+    
+    def get_person_name(self, id: int) -> str:
+        person = self.database.find(self.COLLECTION_NAME, {"id": id})
+        return person["name"]
