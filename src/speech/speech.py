@@ -17,19 +17,23 @@ class Speech:
         voices = self.tts_engine.getProperty("voices")
         self.tts_engine.setProperty("voice", voices[0].id)
 
-    def listen(self) -> str:
+    def listen(self, timeout: int = 10, phrase_time_limit: int = None) -> str:
         text = None
         # capture audio from microphone
         with self.microphone as source:
-            audio = self.speech_recognizer.listen(source)
             try:
+                audio = self.speech_recognizer.listen(source, timeout, phrase_time_limit)
                 # convert speech to text
+                
                 text = self.speech_recognizer.recognize_google(audio)
                 return text
+            except sr.WaitTimeoutError:
+                raise Exception("Sorry, I could not hear you")
             except sr.UnknownValueError:
                 raise Exception("Sorry, I could not understand what you said")
             except sr.RequestError:
                 raise Exception("Sorry, I could not access the Google Speech Recognition service")
+        
 
     def listen_for(self, phrase: str) -> None:
         phrase = phrase.lower()

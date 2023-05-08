@@ -8,7 +8,7 @@ from src.mongodb import MongoDB
 
 class FaceRecognition:
     FACE_IMAGE_SIZE = (256, 256)
-    CONFIDENCE_THRESHOLD = 100
+    CONFIDENCE_THRESHOLD = 50
     COLLECTION_NAME = "people"
     DB_NAME = "face_recognition"
     model_file = "face_recognition_model.yml"
@@ -94,11 +94,10 @@ class FaceRecognition:
         id, confidence = self.recognizer.predict(face)
 
         # if the confidence is high enough, the person is recognized
-        if confidence > self.CONFIDENCE_THRESHOLD:
+        if confidence < self.CONFIDENCE_THRESHOLD:
             return self.get_person_name(id)
         else:
             return None
-
 
     def create_dataset(self, camera: Camera, size: int) -> list:
         dataset = []
@@ -122,3 +121,4 @@ class FaceRecognition:
     def get_person_name(self, id: int) -> str:
         person = self.database.find(self.COLLECTION_NAME, {"id": id})
         return person["name"]
+    
