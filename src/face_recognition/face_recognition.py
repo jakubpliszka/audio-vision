@@ -6,6 +6,9 @@ import numpy as np
 from src.camera import Camera
 from src.mongodb import MongoDB
 
+# TODO find a way to save the recognizer to database 
+# it should have IDs of all the people it has been trained on
+
 class FaceRecognition:
     FACE_IMAGE_SIZE = (256, 256)
     CONFIDENCE_THRESHOLD = 50
@@ -101,6 +104,8 @@ class FaceRecognition:
 
     def create_dataset(self, camera: Camera, size: int) -> list:
         dataset = []
+        cv2.namedWindow("Camera View", cv2.WINDOW_NORMAL)
+        
         for _ in range(size):
             # read a frame from the camera
             frame = camera.capture()
@@ -115,7 +120,13 @@ class FaceRecognition:
             # save the face image
             face = detected_faces[0]
             dataset.append(face)
+            
+            # display the camera view
+            cv2.imshow("Camera View", frame)
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
+        cv2.destroyWindow("Camera View")
         return dataset
     
     def get_person_name(self, id: int) -> str:
