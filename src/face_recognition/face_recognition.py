@@ -6,8 +6,9 @@ import numpy as np
 from src.camera import Camera
 from src.mongodb import MongoDB
 
-# TODO find a way to save the recognizer to database 
+# TODO find a way to save the recognizer to database
 # it should have IDs of all the people it has been trained on
+
 
 class FaceRecognition:
     FACE_IMAGE_SIZE = (256, 256)
@@ -35,7 +36,7 @@ class FaceRecognition:
         # check if the person already exists
         person = self.database.find(self.COLLECTION_NAME, {"name": name})
         if person:
-            return person["id"] 
+            return person["id"]
 
         # get the id of the latest person
         latest_entry = self.database.find(self.COLLECTION_NAME, {}, sort=[("timestamp", -1)])
@@ -43,7 +44,7 @@ class FaceRecognition:
             # create a new entry
             id = 0
         else:
-            id = latest_entry["id"] + 1 
+            id = latest_entry["id"] + 1
 
         person = {
             "timestamp": datetime.datetime.now(),
@@ -57,7 +58,7 @@ class FaceRecognition:
         # return the id of the new person
         return id
 
-    def train(self, faces: list[np.ndarray], id: int) -> None:
+    def train(self, faces: list, id: int) -> None:
         ids = np.full(len(faces), id, dtype=np.int32)
         if not self.trained:
             self.recognizer.train(faces, ids)
@@ -88,11 +89,11 @@ class FaceRecognition:
     def recognize(self, image: np.ndarray) -> str:
         if not self.trained:
             return None
-        
+
         # detect the faces in the frame using the face detection classifier
         detected_faces = self.detect_face(image)
-        face = detected_faces[0] # focus on the first face
-        
+        face = detected_faces[0]  # focus on the first face
+
         # use the face recognition model to recognize the person
         id, confidence = self.recognizer.predict(face)
 
@@ -105,7 +106,7 @@ class FaceRecognition:
     def create_dataset(self, camera: Camera, size: int) -> list:
         dataset = []
         cv2.namedWindow("Camera View", cv2.WINDOW_NORMAL)
-        
+
         for _ in range(size):
             # read a frame from the camera
             frame = camera.capture()
@@ -120,7 +121,7 @@ class FaceRecognition:
             # save the face image
             face = detected_faces[0]
             dataset.append(face)
-            
+
             # display the camera view
             cv2.imshow("Camera View", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
@@ -128,8 +129,7 @@ class FaceRecognition:
 
         cv2.destroyWindow("Camera View")
         return dataset
-    
+
     def get_person_name(self, id: int) -> str:
         person = self.database.find(self.COLLECTION_NAME, {"id": id})
         return person["name"]
-    

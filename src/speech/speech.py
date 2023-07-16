@@ -14,8 +14,11 @@ class Speech:
         self.tts_engine = tts.init()
 
         # use the system's default voice
-        voices = self.tts_engine.getProperty("voices")
-        self.tts_engine.setProperty("voice", voices[0].id)
+        # voices = self.tts_engine.getProperty("voices")
+        # self.tts_engine.setProperty("voice", voices[0].id)
+
+        # use english voice
+        self.tts_engine.setProperty("voice", "english")
 
     def listen(self, timeout: int = 5, phrase_time_limit: int = 5) -> str:
         text = None
@@ -24,7 +27,7 @@ class Speech:
             try:
                 audio = self.speech_recognizer.listen(source, timeout, phrase_time_limit)
                 # convert speech to text
-                
+
                 text = self.speech_recognizer.recognize_google(audio)
                 return text
             except sr.WaitTimeoutError:
@@ -33,16 +36,15 @@ class Speech:
                 raise sr.UnknownValueError("Sorry, I could not understand what you said")
             except sr.RequestError:
                 raise sr.RequestError("Sorry, I could not access the Google Speech Recognition service")
-        
 
-    def listen_for(self, phrase: str | list[str], listen_once: bool = False) -> None:
+    def listen_for(self, phrase: str, listen_once: bool = False) -> None:
         if type(phrase) is str:
             phrase = phrase.lower()
             is_str = True
         else:
             phrase = [p.lower() for p in phrase]
             is_str = False
-            
+
         while True:
             try:
                 text = self.listen(timeout=2, phrase_time_limit=2)
@@ -51,9 +53,9 @@ class Speech:
 
                 text = text.lower()
                 if is_str and phrase in text:
-                    break # exit the loop if the phrase is recognized
+                    break  # exit the loop if the phrase is recognized
                 elif not is_str and any(p in text for p in phrase):
-                    break # exit the loop if the phrase is recognized
+                    break  # exit the loop if the phrase is recognized
             except (sr.WaitTimeoutError, sr.UnknownValueError):
                 if listen_once:
                     raise

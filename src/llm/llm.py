@@ -3,6 +3,9 @@ import openai
 
 class LLM:
     def __init__(self, model_id: str = "gpt-3.5-turbo") -> None:
+        if openai.api_key is None:
+            raise Exception("OpenAI API key is not set")
+
         self.model_id = model_id
         self.conversation = [
             {"role": "system", "content": "Hello"}]  # initial message

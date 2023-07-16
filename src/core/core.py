@@ -9,9 +9,20 @@ from src.aspen_api import AspenAPI
 
 class State(Enum):
     STANDBY = 0
-    CAMERA_RUN = 1
+    RUN_CAMERA = 1
     LISTEN = 2
     TRAIN = 3
+
+    @staticmethod
+    def get_name(state: "State") -> str:
+        NAMES = {
+            State.STANDBY: "standby",
+            State.RUN_CAMERA: "run camera",
+            State.LISTEN: "listen",
+            State.TRAIN: "train"
+        }
+        return NAMES[state]
+
 
 class Core:
     DATASET_SIZE = 100
@@ -22,8 +33,8 @@ class Core:
     OPEN_TRAY_PHASE = "open the tray"
     CLOSE_TRAY_PHASE = "close the tray"
 
-
-    def __init__(self, use_camera: bool = True, use_aspen: bool = True) -> None:
+    def __init__(self, use_camera: bool = True, use_aspen: bool = True,
+                 aspen_user_api_key: str = None, aspen_tenant_id: str = None, aspen_server_ip_address: str = None) -> None:
         self.use_camera = use_camera
         self.use_aspen = use_aspen
 
@@ -35,21 +46,23 @@ class Core:
             self.camera = Camera()
 
         if use_aspen:
-            self.aspen = AspenAPI()
+            self.aspen = AspenAPI(user_api_key=aspen_user_api_key,
+                                  tenant_id=aspen_tenant_id,
+                                  server_ip_address=aspen_server_ip_address)
 
         self.speech.say("System initialized")
         self.state = State.STANDBY
 
     def change_state(self, state: State) -> None:
         self.state = state
-        self.speech.say(f"Changed state to {state.name}")
+        self.speech.say(f"Changed state to {State.get_name(state)}")
 
     def get_name_from_speech(self) -> str:
         self.speech.say("Please tell me your name")
         name = None
         while not name:
             try:
-                name = self.speech.listen() # get name from speech recognition
+                name = self.speech.listen()  # get name from speech recognition
             except Exception:
                 self.speech.say("Sorry, I could not understand you")
         return name
@@ -64,54 +77,54 @@ class Core:
             except Exception:
                 continue
 
-        id = self.face_recognition.add_new_person(name) # add new person to database
+        id = self.face_recognition.add_new_person(name)  # add new person to database
         self.speech.say("Please stand still and look at the camera")
 
-        dataset = self.face_recognition.create_dataset(self.camera, self.DATASET_SIZE) # create dataset
-        self.face_recognition.train(dataset, id) # train the model
+        dataset = self.face_recognition.create_dataset(self.camera, self.DATASET_SIZE)  # create dataset
+        self.face_recognition.train(dataset, id)  # train the model
         self.speech.say("New person added to the database")
 
     def run(self) -> None:
         while True:
-            match self.state:
-                case State.STANDBY:
-                    self.speech.listen_for(self.START_PHASE)
-                    self.change_state(State.CAMERA_RUN)
-                case State.CAMERA_RUN:
-                    if not self.use_camera:
-                        self.change_state(State.LISTEN)
-                        continue
+            if self.state == State.STANDBY:
+                self.speech.listen_for(self.START_PHASE)
+                if not self.use_camera:
+                    self.change_state(State.LISTEN)
+                else:
+                    self.change_state(State.RUN_CAMERA)
+            elif self.state == State.RUN_CAMERA:
+                person = self.recognize()
 
-                    person = self.recognize()
+                if person:
+                    self.change_state(State.LISTEN)
+                else:  # if not, add new person
+                    self.speech.say("I don't know who you are, starting training...")
+                    self.change_state(State.TRAIN)
+            elif self.state == State.LISTEN:
+                try:
+                    self.speech.say("I'm listening")
+                    heard = self.speech.listen()
+                    heard = heard.lower()
 
-                    if person:
-                        self.change_state(State.LISTEN)
-                    else: # if not, add new person
-                        self.speech.say("I don't know who you are, starting training...")
-                        self.change_state(State.TRAIN)
-                case State.LISTEN:
-                    try:
-                        self.speech.say("I'm listening")
-                        heard = self.speech.listen()
-                        heard = heard.lower()
+                    if self.use_aspen:
+                        if heard == self.OPEN_TRAY_PHASE:
+                            self.speech.say("Opening the tray")
+                            self.aspen.open_tray()
+                            continue
+                        elif heard == self.CLOSE_TRAY_PHASE:
+                            self.speech.say("Closing the tray")
+                            self.aspen.open_tray()
+                            continue
 
-                        if self.use_aspen:
-                            if heard == self.OPEN_TRAY_PHASE:
-                                self.aspen.open_tray()
-                                continue
-                            elif heard == self.CLOSE_TRAY_PHASE:
-                                self.aspen.open_tray()
-                                continue
-
-                        response_message = self.llm.chat(heard)
-                        self.speech.say(response_message)
-                    except Exception as exception:
-                        self.speech.say(str(exception))
-                    finally:
-                        self.change_state(State.STANDBY)
-                case State.TRAIN:
-                    self.add_new_person()
-                    self.change_state(State.CAMERA_RUN)
+                    response_message = self.llm.chat(heard)
+                    self.speech.say(response_message)
+                except Exception as exception:
+                    self.speech.say(f"Exception: {str(exception)}")
+                finally:
+                    self.change_state(State.STANDBY)
+            elif self.state == State.TRAIN:
+                self.add_new_person()
+                self.change_state(State.RUN_CAMERA)
 
     def recognize(self) -> str:
         face_detected_counter = 0
@@ -121,15 +134,16 @@ class Core:
             frame = self.camera.capture()
             if self.face_recognition.detect_face(frame).size == 0:
                 continue
-            
+
             face_detected_counter += 1
-            
+
             # check if person is recognized
             person = self.face_recognition.recognize(frame)
             if person:
-                recognized_persons[person] = recognized_persons.get(person, 0) + 1 # count how many times a person is recognized
+                recognized_persons[person] = recognized_persons.get(
+                    person, 0) + 1  # count how many times a person is recognized
                 if recognized_persons[person] >= self.PERSON_RECOGNITION_LIMIT:
                     self.speech.say(f"Hello {person}")
                     return person
-                
+
         return None
